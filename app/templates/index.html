@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Quiz App</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', sans-serif; }
+        .header-section { background: #6c5ce7; color: white; padding: 40px 0; border-radius: 0 0 30px 30px; margin-bottom: 30px; }
+        .topic-card { cursor: pointer; transition: 0.3s; border: 2px solid transparent; }
+        .topic-card:hover { transform: translateY(-5px); border-color: #6c5ce7; }
+        .card { border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body>
+
+<div class="header-section text-center">
+    <h1>🚀 Daily Quiz Challenge</h1>
+    <p>Test your knowledge & build your streak!</p>
+</div>
+
+<div class="container">
+    <!-- 1. NEW: Authentication Screen -->
+    <div id="auth-screen" class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card p-4 text-center">
+                <h3 class="mb-4">Student Login</h3>
+                <input type="text" id="username" class="form-control mb-3" placeholder="Username">
+                <input type="password" id="password" class="form-control mb-3" placeholder="Password">
+                <button class="btn btn-primary w-100 mb-2" onclick="handleAuth('login')" style="background-color: #6c5ce7; border: none;">Login</button>
+                <button class="btn btn-outline-secondary w-100" onclick="handleAuth('register')">Register</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. UPDATED: Selection Screen (Hidden until logged in) -->
+    <div id="selection-screen" class="row justify-content-center" style="display:none;">
+        <div class="col-md-8 text-center">
+            <h2 id="welcome-msg" class="mb-3"></h2>
+            <h4 class="text-warning mb-4">🔥 Current Streak: <span id="streak-display">0</span> days</h4>
+            
+            <h3>Choose a Category</h3>
+            <div class="row g-3 mt-3">
+                <div class="col-6 col-md-3">
+                    <div class="card p-3 topic-card" onclick="startQuiz('Maths')">📐<br>Maths</div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card p-3 topic-card" onclick="startQuiz('Science')">🧪<br>Science</div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card p-3 topic-card" onclick="startQuiz('GK')">🌍<br>GK</div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card p-3 topic-card" onclick="startQuiz('Music')">🎵<br>Music</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Quiz Screen -->
+    <div id="quiz-screen" style="display:none;" class="row justify-content-center">
+        <div class="col-md-8">
+            <div id="quiz-container"></div>
+            <div id="result-container" style="display:none;" class="card p-5 text-center">
+                <h2 id="final-score" class="text-success display-4 font-weight-bold mb-3"></h2>
+                <h4 class="mb-4">🔥 New Streak: <span id="new-streak-display"></span> days</h4>
+                <button onclick="goHome()" class="btn btn-primary mt-3" style="background-color: #6c5ce7; border: none;">Play Another Topic</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentQuestions = [];
+    let answers = {};
+    let currentUser = "";
+
+    // --- NEW: Handle Authentication API Calls ---
+    async function handleAuth(action) {
+        const userField = document.getElementById('username').value;
+        const passField = document.getElementById('password').value;
+        
+        if (!userField || !passField) {
+            alert("Please enter both username and password.");
+            return;
+        }
+        
+        const endpoint = action === 'login' ? '/api/login' : '/api/register';
+        
+        try {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: userField, password: passField })
+            });
+            
+            const data = await res.json();
+            
+            if (res.ok) {
+                if (action === 'register') {
+                    alert(data.message);
+                } else {
+                    // Login successful: Show dashboard
+                    currentUser = userField;
+                    document.getElementById('auth-screen').style.display = 'none';
+                    document.getElementById('selection-screen').style.display = 'flex';
+                    document.getElementById('welcome-msg').innerText = `Welcome back, ${currentUser}!`;
+                }
+            } else {
+                alert("Error: " + data.error);
+            }
+        } catch (err) {
+            console.error("Auth error:", err);
+            alert("Could not connect to server.");
+        }
+    }
+
+    async function startQuiz(topic) {
+        document.getElementById('selection-screen').style.display = 'none';
+        document.getElementById('quiz-screen').style.display = 'flex';
+        answers = {}; // Reset answers for new quiz
+        
+        try {
+            const res = await fetch(`/api/quiz?topic=${topic}`);
+            
+            if (!res.ok) {
+                alert("No questions found for this topic yet!");
+                goHome();
+                return;
+            }
+            
+            currentQuestions = await res.json();
+            renderQuestions();
+        } catch (err) {
+            alert("Error loading quiz. Check console.");
+            console.error(err);
+        }
+    }
+
+    function renderQuestions() {
+        const container = document.getElementById('quiz-container');
+        container.innerHTML = '';
+        
+        currentQuestions.forEach((q, index) => {
+            container.innerHTML += `
+                <div class="card p-4 mb-3">
+                    <h5>Q${index + 1}: ${q.question}</h5>
+                    <div class="d-grid gap-2 mt-3">
+                        <button class="btn btn-outline-secondary opt-${index}" onclick="selectOpt(${index}, 'A')">A) ${q.options.A}</button>
+                        <button class="btn btn-outline-secondary opt-${index}" onclick="selectOpt(${index}, 'B')">B) ${q.options.B}</button>
+                        <button class="btn btn-outline-secondary opt-${index}" onclick="selectOpt(${index}, 'C')">C) ${q.options.C}</button>
+                        <button class="btn btn-outline-secondary opt-${index}" onclick="selectOpt(${index}, 'D')">D) ${q.options.D}</button>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML += `<button onclick="showResults()" class="btn btn-success w-100 btn-lg mb-5">Submit Answers</button>`;
+    }
+
+    function selectOpt(qIdx, choice) {
+        answers[qIdx] = choice;
+        const btns = document.querySelectorAll(`.opt-${qIdx}`);
+        btns.forEach(b => b.classList.replace('btn-primary', 'btn-outline-secondary'));
+        event.target.classList.replace('btn-outline-secondary', 'btn-primary');
+    }
+
+    // --- UPDATED: Submit score to backend to calculate streak ---
+    async function showResults() {
+        let score = 0;
+        currentQuestions.forEach((q, i) => {
+            if(answers[i] === q.correct) score++;
+        });
+        
+        try {
+            const res = await fetch('/api/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ score: score })
+            });
+            
+            const data = await res.json();
+
+            if (res.ok) {
+                document.getElementById('quiz-container').style.display = 'none';
+                document.getElementById('result-container').style.display = 'block';
+                
+                document.getElementById('final-score').innerText = `${score} / 5`;
+                document.getElementById('new-streak-display').innerText = data.streak;
+                document.getElementById('streak-display').innerText = data.streak; // Update dashboard streak too
+            } else {
+                alert("Error saving score: " + data.error);
+            }
+        } catch (err) {
+            console.error("Submit error:", err);
+            alert("Could not save score to server.");
+        }
+    }
+
+    function goHome() {
+        document.getElementById('quiz-container').style.display = 'block'; // Reset display state
+        document.getElementById('quiz-container').innerHTML = ''; // Clear old questions
+        document.getElementById('result-container').style.display = 'none';
+        document.getElementById('quiz-screen').style.display = 'none';
+        document.getElementById('selection-screen').style.display = 'flex';
+    }
+</script>
+
+</body>
+</html>
